@@ -60,14 +60,23 @@ def clean_up_data(file_path):
                 deleted_row["deletion_reason"] = "; ".join(deletion_reason)
                 deleted_rows.append((index, deleted_row))
 
-        # Print deleted rows
+        # Print deleted rows (limit output for Colab)
         logging.info(f"\n=== DELETED ROWS ({len(deleted_rows)} total) ===")
-        for row_index, deleted_row in deleted_rows:
+        if len(deleted_rows) > 100:
+            logging.info("Too many deleted rows to display all. Showing first 10:")
+            deleted_rows_to_show = deleted_rows[:10]
+        else:
+            deleted_rows_to_show = deleted_rows
+
+        for row_index, deleted_row in deleted_rows_to_show:
             logging.info(
                 f"\nRow {row_index + 2} (Excel row {row_index + 2}):"
             )  # +2 because Excel is 1-indexed and has header
             logging.info(f"  Reason: {deleted_row['deletion_reason']}")
             logging.info(f"  Data: {deleted_row}")
+
+        if len(deleted_rows) > 100:
+            logging.info(f"... and {len(deleted_rows) - 10} more rows deleted")
 
         # Remove the problematic rows
         rows_to_drop = [row_index for row_index, _ in deleted_rows]
@@ -79,7 +88,9 @@ def clean_up_data(file_path):
         logging.info(f"Remaining rows: {len(df_cleaned)}")
         logging.info(f"Data reduction: {len(deleted_rows)/len(df)*100:.2f}%")
 
-        output_path = os.path.join(os.path.dirname(file_path), "Online Retail_Cleaned.xlsx")
+        output_path = os.path.join(
+            os.path.dirname(file_path), "Online Retail_Cleaned.xlsx"
+        )
         df_cleaned.to_excel(output_path, index=False)
 
         return output_path
@@ -90,5 +101,3 @@ def clean_up_data(file_path):
     except Exception as e:
         logging.error(f"Error reading Excel file: {str(e)}")
         return None
-
-
