@@ -1,7 +1,7 @@
 from clean_up_data import clean_up_data
-from item_transaction_matrix_optimized import (
-    create_item_transaction_matrix_streaming,
-    create_item_transaction_matrix_chunked,
+from item_transaction_matrix_fixed import (
+    create_item_transaction_matrix_ultra_streaming,
+    create_item_transaction_matrix_simple,
 )
 import os
 import logging
@@ -38,24 +38,24 @@ if cleaned_file_path is None:
 logging.info(f"Cleaned data saved to: {cleaned_file_path}")
 
 # Step 2: Create Item-Transaction Matrix (Memory-Optimized)
-logging.info("=== STEP 2: CREATING ITEM-TRANSACTION MATRIX (STREAMING) ===")
+logging.info("=== STEP 2: CREATING ITEM-TRANSACTION MATRIX (ULTRA STREAMING) ===")
 
-# Try streaming approach first (most memory efficient)
-logging.info("Attempting streaming approach...")
+# Try ultra streaming approach first (most memory efficient)
+logging.info("Attempting ultra streaming approach...")
 items_list, transactions_list, matrix_file_path = (
-    create_item_transaction_matrix_streaming(cleaned_file_path)
+    create_item_transaction_matrix_ultra_streaming(cleaned_file_path)
 )
 
 if items_list is not None:
-    logging.info(f"✅ Streaming approach successful!")
+    logging.info(f"✅ Ultra streaming approach successful!")
     logging.info(
         f"Matrix dimensions: {len(transactions_list)} transactions × {len(items_list)} items"
     )
     logging.info(f"Item-Transaction matrix saved to: {matrix_file_path}")
 
-    # Try chunked approach as backup for analysis
-    logging.info("Creating chunked version for analysis...")
-    matrix, _, _, chunked_file_path = create_item_transaction_matrix_chunked(
+    # Try simple approach for analysis
+    logging.info("Creating simple version for analysis...")
+    matrix, _, _, simple_file_path = create_item_transaction_matrix_simple(
         cleaned_file_path
     )
 
@@ -83,7 +83,7 @@ if items_list is not None:
         for transaction, count in large_transactions.items():
             logging.info(f"  Transaction {transaction}: {count} items")
 
-        logging.info(f"Chunked matrix saved to: {chunked_file_path}")
+        logging.info(f"Simple matrix saved to: {simple_file_path}")
 
         # Display first few rows
         logging.info("=== MATRIX PREVIEW ===")
@@ -91,13 +91,13 @@ if items_list is not None:
         print(matrix.iloc[:5, :10])
 
 else:
-    logging.error("❌ Streaming approach failed, trying chunked approach...")
+    logging.error("❌ Ultra streaming approach failed, trying simple approach...")
     matrix, items_list, transactions_list, matrix_file_path = (
-        create_item_transaction_matrix_chunked(cleaned_file_path)
+        create_item_transaction_matrix_simple(cleaned_file_path)
     )
 
     if matrix is not None:
-        logging.info("✅ Chunked approach successful!")
+        logging.info("✅ Simple approach successful!")
         logging.info(f"Matrix dimensions: {matrix.shape}")
         logging.info(f"Item-Transaction matrix saved to: {matrix_file_path}")
     else:

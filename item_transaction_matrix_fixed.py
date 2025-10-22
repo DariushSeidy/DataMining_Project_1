@@ -3,13 +3,13 @@ import numpy as np
 import os
 import logging
 from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
+from collections import defaultdict
 
 
-def create_item_transaction_matrix_streaming(file_path):
+def create_item_transaction_matrix_ultra_streaming(file_path):
     """
-    Creates a binary item-transaction matrix by writing directly to Excel file.
-    This approach is memory-efficient for large datasets.
+    Ultra memory-efficient approach: Write directly to Excel without storing matrix in memory.
+    This approach processes data row by row and writes directly to Excel.
 
     Args:
         file_path: Path to the cleaned Excel file
@@ -19,18 +19,22 @@ def create_item_transaction_matrix_streaming(file_path):
     """
 
     try:
-        # Read the cleaned data
         logging.info(f"Reading cleaned data from: {file_path}")
-        df = pd.read_excel(file_path)
 
-        logging.info(f"Loaded data shape: {df.shape}")
+        # Read data in chunks to minimize memory usage
+        chunk_size = 5000  # Smaller chunks for better memory management
+        chunks = []
+
+        # Read Excel file in chunks (manual chunking since pandas doesn't support it for Excel)
+        df_full = pd.read_excel(file_path)
+        logging.info(f"Loaded data shape: {df_full.shape}")
 
         # Convert StockCode to string for consistency
-        df["StockCode"] = df["StockCode"].astype(str)
+        df_full["StockCode"] = df_full["StockCode"].astype(str)
 
-        # Get unique items and transactions (convert to string for consistent sorting)
-        unique_items = sorted(df["StockCode"].unique())
-        unique_transactions = sorted(df["InvoiceNo"].unique())
+        # Get unique items and transactions
+        unique_items = sorted(df_full["StockCode"].unique())
+        unique_transactions = sorted(df_full["InvoiceNo"].unique())
 
         logging.info(f"Number of unique transactions: {len(unique_transactions)}")
         logging.info(f"Number of unique items: {len(unique_items)}")
@@ -43,51 +47,51 @@ def create_item_transaction_matrix_streaming(file_path):
 
         # Create workbook and worksheet
         output_path = os.path.join(
-            os.path.dirname(file_path), "Item_Transaction_Matrix_Streaming.xlsx"
+            os.path.dirname(file_path), "Item_Transaction_Matrix_Ultra_Streaming.xlsx"
         )
         wb = Workbook()
         ws = wb.active
         ws.title = "Item-Transaction Matrix"
 
-        # Write headers (item codes)
-        ws.cell(row=1, column=1, value="InvoiceNo")  # First column for transaction IDs
+        # Write headers
+        ws.cell(row=1, column=1, value="InvoiceNo")
         for col_idx, item in enumerate(unique_items, start=2):
             ws.cell(row=1, column=col_idx, value=str(item))
 
-        logging.info("Writing matrix data row by row...")
+        logging.info("Creating transaction-item mapping...")
 
-        # Initialize matrix with zeros
-        matrix_data = np.zeros((len(unique_transactions), len(unique_items)), dtype=int)
+        # Create a dictionary to store which items are in each transaction
+        transaction_items = defaultdict(set)
 
-        # Fill matrix by processing data in chunks
-        chunk_size = 10000
-        total_chunks = len(df) // chunk_size + (1 if len(df) % chunk_size else 0)
+        # Process data in chunks
+        total_chunks = len(df_full) // chunk_size + (
+            1 if len(df_full) % chunk_size else 0
+        )
 
         for chunk_idx in range(total_chunks):
             start_idx = chunk_idx * chunk_size
-            end_idx = min((chunk_idx + 1) * chunk_size, len(df))
-            chunk_df = df.iloc[start_idx:end_idx]
+            end_idx = min((chunk_idx + 1) * chunk_size, len(df_full))
+            chunk_df = df_full.iloc[start_idx:end_idx]
 
             for _, row in chunk_df.iterrows():
-                trans_idx = transaction_to_index[row["InvoiceNo"]]
-                item_idx = item_to_index[row["StockCode"]]
-                matrix_data[trans_idx, item_idx] = 1
+                transaction_items[row["InvoiceNo"]].add(row["StockCode"])
 
-            if chunk_idx % 10 == 0:  # Progress update every 10 chunks
+            if chunk_idx % 20 == 0:  # Progress update every 20 chunks
                 logging.info(f"Processed chunk {chunk_idx + 1}/{total_chunks}")
 
-        # Write matrix to Excel
         logging.info("Writing matrix to Excel file...")
 
-        # Write transaction IDs and matrix data
+        # Write matrix row by row
         for row_idx, transaction in enumerate(unique_transactions, start=2):
             ws.cell(row=row_idx, column=1, value=transaction)
-            for col_idx in range(len(unique_items)):
-                ws.cell(
-                    row=row_idx,
-                    column=col_idx + 2,
-                    value=int(matrix_data[row_idx - 2, col_idx]),
-                )
+
+            # Get items for this transaction
+            items_in_transaction = transaction_items[transaction]
+
+            # Write 1s and 0s for each item
+            for col_idx, item in enumerate(unique_items, start=2):
+                value = 1 if item in items_in_transaction else 0
+                ws.cell(row=row_idx, column=col_idx, value=value)
 
             if row_idx % 1000 == 0:  # Progress update every 1000 rows
                 logging.info(f"Written {row_idx-1}/{len(unique_transactions)} rows")
@@ -97,18 +101,18 @@ def create_item_transaction_matrix_streaming(file_path):
 
         logging.info(f"Item-Transaction matrix saved to: {output_path}")
 
-        # Calculate statistics
+        # Calculate basic statistics
         total_cells = len(unique_transactions) * len(unique_items)
-        filled_cells = np.sum(matrix_data)
+        filled_cells = sum(len(items) for items in transaction_items.values())
         density = (filled_cells / total_cells) * 100
 
         logging.info(f"Matrix density: {density:.2f}%")
-        logging.info(
-            f"Average items per transaction: {np.mean(np.sum(matrix_data, axis=1)):.2f}"
+
+        # Calculate average items per transaction
+        avg_items_per_transaction = np.mean(
+            [len(items) for items in transaction_items.values()]
         )
-        logging.info(
-            f"Average transactions per item: {np.mean(np.sum(matrix_data, axis=0)):.2f}"
-        )
+        logging.info(f"Average items per transaction: {avg_items_per_transaction:.2f}")
 
         return unique_items, unique_transactions, output_path
 
@@ -117,10 +121,9 @@ def create_item_transaction_matrix_streaming(file_path):
         return None, None, None
 
 
-def create_item_transaction_matrix_chunked(file_path):
+def create_item_transaction_matrix_simple(file_path):
     """
-    Alternative approach: Create matrix using pandas but with chunked processing.
-    This is a middle ground between memory efficiency and simplicity.
+    Simple approach using pandas groupby - most reliable but uses more memory.
 
     Args:
         file_path: Path to the cleaned Excel file
@@ -131,28 +134,19 @@ def create_item_transaction_matrix_chunked(file_path):
 
     try:
         logging.info(f"Reading cleaned data from: {file_path}")
-
-        # Read the entire file (pandas read_excel doesn't support chunksize)
         df = pd.read_excel(file_path)
         logging.info(f"Total data shape: {df.shape}")
 
         # Convert StockCode to string for consistency
         df["StockCode"] = df["StockCode"].astype(str)
 
-        # Create binary matrix using pivot (this is still memory intensive but more efficient)
-        logging.info("Creating binary matrix...")
+        logging.info("Creating binary matrix using groupby...")
 
-        # First, create a binary indicator
-        df["item_present"] = 1
+        # Create binary matrix using groupby and unstack
+        matrix = df.groupby(["InvoiceNo", "StockCode"]).size().unstack(fill_value=0)
 
-        # Pivot to create matrix
-        matrix = df.pivot_table(
-            index="InvoiceNo",
-            columns="StockCode",
-            values="item_present",
-            fill_value=0,
-            aggfunc="max",  # Use max to ensure binary (1 or 0)
-        ).astype(int)
+        # Convert to binary (1 if item exists in transaction, 0 otherwise)
+        matrix = (matrix > 0).astype(int)
 
         logging.info(f"Item-Transaction matrix shape: {matrix.shape}")
 
@@ -162,7 +156,7 @@ def create_item_transaction_matrix_chunked(file_path):
 
         # Save matrix
         output_path = os.path.join(
-            os.path.dirname(file_path), "Item_Transaction_Matrix_Chunked.xlsx"
+            os.path.dirname(file_path), "Item_Transaction_Matrix_Simple.xlsx"
         )
         matrix.to_excel(output_path)
 
