@@ -68,21 +68,31 @@ def create_monthly_batches():
         invoice_dates = df_data.groupby("InvoiceNo")["InvoiceDate"].min()
 
         # Convert to year-month period (e.g., "2010-12")
+        # IMPORTANT: Convert InvoiceNo to string for consistent matching with CSV
         invoice_to_month = {}
         for invoice_no, invoice_date in invoice_dates.items():
             month_period = invoice_date.to_period("M")
-            invoice_to_month[invoice_no] = str(month_period)
+            # Convert InvoiceNo to string and strip whitespace to match CSV format
+            # CSV always reads as string, so we need to match that format
+            invoice_no_str = str(invoice_no).strip()
+            invoice_to_month[invoice_no_str] = str(month_period)
 
         # Get unique months and sort
         unique_months = sorted(set(invoice_to_month.values()))
         print(f"Found {len(unique_months)} unique months")
         print(f"Date range: {unique_months[0]} to {unique_months[-1]}")
-        print(f"Total invoices: {len(invoice_to_month):,}")
+        print(f"Total invoices in mapping: {len(invoice_to_month):,}")
 
-        # Group InvoiceNos by month
+        # Debug: Show sample InvoiceNo types (first few)
+        sample_invoices = list(invoice_to_month.keys())[:3]
+        print(
+            f"Sample InvoiceNo types in mapping (should be strings): {[type(inv).__name__ for inv in sample_invoices]}"
+        )
+
+        # Group InvoiceNos by month (InvoiceNos already converted to strings above)
         month_to_invoices = defaultdict(set)
         for invoice_no, month in invoice_to_month.items():
-            month_to_invoices[month].add(invoice_no)
+            month_to_invoices[month].add(invoice_no)  # invoice_no is already string
 
         # Free memory
         del df_data, invoice_dates
@@ -126,6 +136,9 @@ def create_monthly_batches():
         matched_rows = 0
         unmatched_invoices = set()
 
+        print(f"Starting to process matrix.csv rows...")
+        print(f"InvoiceNo lookup dictionary size: {len(invoice_to_month):,} invoices")
+
         with open(matrix_path, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
             next(reader)  # Skip header (already processed)
@@ -135,10 +148,15 @@ def create_monthly_batches():
                     continue
 
                 total_rows += 1
-                invoice_no = row[0]  # First column is InvoiceNo
+                invoice_no = row[
+                    0
+                ]  # First column is InvoiceNo (already string from CSV)
+
+                # Ensure InvoiceNo is string for matching (should already be, but be safe)
+                invoice_no = str(invoice_no).strip() if invoice_no else None
 
                 # Find which month this invoice belongs to
-                month = invoice_to_month.get(invoice_no)
+                month = invoice_to_month.get(invoice_no) if invoice_no else None
 
                 if month and month in batch_files:
                     # Write row to appropriate batch file
