@@ -1,14 +1,14 @@
 import pandas as pd
 import os
 import gc
-from openpyxl import load_workbook
+import csv
 
 
 def fill_matrix():
     """
     Reads Online Retail_Cleaned.xlsx, groups by InvoiceNo,
-    and fills matrix.xlsx with 1s where items exist in each invoice, 0s elsewhere.
-    Writes each invoice row immediately to avoid memory issues.
+    and fills matrix.csv with 1s where items exist in each invoice, 0s elsewhere.
+    Uses CSV streaming for maximum memory efficiency with large datasets.
     Colab-friendly: uses getcwd() for path detection.
     """
     try:
@@ -23,8 +23,8 @@ def fill_matrix():
         # Path to the cleaned retail data
         data_path = os.path.join(current_dir, "Online Retail_Cleaned.xlsx")
 
-        # Path to the matrix file
-        matrix_path = os.path.join(current_dir, "matrix.xlsx")
+        # Path to the matrix file (CSV format for memory efficiency)
+        matrix_path = os.path.join(current_dir, "matrix.csv")
 
         print(f"Working directory: {current_dir}")
         print(f"Reading data from: {data_path}")
@@ -49,60 +49,61 @@ def fill_matrix():
         df_data = pd.read_excel(data_path)
         print(f"Data shape: {df_data.shape}")
 
-        # Read the existing matrix file to get the column structure
-        df_matrix = pd.read_excel(matrix_path)
-        print(f"Matrix shape: {df_matrix.shape}")
-        print(f"Number of columns: {len(df_matrix.columns)}")
+        # Read the CSV header to get column structure (memory-efficient)
+        with open(matrix_path, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            header = next(reader)
 
-        # Get all column names (first is InvoiceNo, rest are items)
-        items_columns = df_matrix.columns.tolist()[1:]  # Skip 'InvoiceNo' column
-
-        # Free up memory - no longer need df_matrix
-        del df_matrix
-        gc.collect()
+        items_columns = header[1:]  # Skip 'InvoiceNo' column
+        print(
+            f"Number of columns: {len(header)} (1 InvoiceNo + {len(items_columns)} items)"
+        )
 
         # Get unique invoices
         unique_invoices = df_data["InvoiceNo"].unique()
         print(f"\nProcessing {len(unique_invoices)} unique invoices...")
 
-        # Load the existing matrix workbook
-        wb = load_workbook(matrix_path)
-        ws = wb.active
+        # Open CSV file in append mode for streaming writes
+        # CSV streaming is much more memory-efficient than Excel
+        # Use try-finally to ensure file is always closed
+        csv_file = open(matrix_path, "a", newline="", encoding="utf-8")
+        csv_writer = csv.writer(csv_file)
 
-        # Process each invoice one at a time
-        for idx, invoice_no in enumerate(unique_invoices, 1):
-            # Get all items in this invoice
-            invoice_group = df_data[df_data["InvoiceNo"] == invoice_no]
-            items_in_invoice = set(invoice_group["Description"].astype(str))
+        try:
+            # Process each invoice one at a time
+            for idx, invoice_no in enumerate(unique_invoices, 1):
+                # Get all items in this invoice
+                invoice_group = df_data[df_data["InvoiceNo"] == invoice_no]
+                items_in_invoice = set(invoice_group["Description"].astype(str))
 
-            # Create row list starting with InvoiceNo
-            row = [invoice_no]
+                # Create row list starting with InvoiceNo
+                row = [invoice_no]
 
-            # Fill in 1s for items that exist in this invoice, 0s otherwise
-            for item in items_columns:
-                row.append(1 if item in items_in_invoice else 0)
+                # Fill in 1s for items that exist in this invoice, 0s otherwise
+                for item in items_columns:
+                    row.append(1 if item in items_in_invoice else 0)
 
-            # Append this row to the worksheet
-            ws.append(row)
+                # Write row immediately to CSV (streaming, no memory buildup)
+                csv_writer.writerow(row)
 
-            # Free up memory - delete temporary variables
-            del invoice_group, items_in_invoice, row
+                # Free up memory - delete temporary variables
+                del invoice_group, items_in_invoice, row
 
-            # Progress update
-            if idx % 500 == 0:
-                print(
-                    f"Processed and inserted {idx}/{len(unique_invoices)} invoices..."
-                )
-                # Save periodically to avoid losing progress
-                wb.save(matrix_path)
-                # Force garbage collection periodically
-                gc.collect()
+                # Progress update
+                if idx % 500 == 0:
+                    print(
+                        f"Processed and inserted {idx}/{len(unique_invoices)} invoices..."
+                    )
+                    # Flush buffer to disk periodically
+                    csv_file.flush()
+                    # Force garbage collection periodically
+                    gc.collect()
 
-        num_invoices = len(unique_invoices)
-        print(f"\nCompleted processing {num_invoices} invoices")
-
-        # Final save
-        wb.save(matrix_path)
+            num_invoices = len(unique_invoices)
+            print(f"\nCompleted processing {num_invoices} invoices")
+        finally:
+            # Always close CSV file, even if an error occurs
+            csv_file.close()
 
         # Final memory cleanup
         del unique_invoices
