@@ -180,7 +180,7 @@ def process_all_batches(
         n_components: Target dimensionality. If None, auto-calculates using JL lemma.
         eps: Error tolerance for auto-calculating dimensions (default 0.5)
         random_state: Random seed for reproducibility
-        output_dir: Directory to save reduced batches. If None, creates 'batches_reduced' directory.
+        output_dir: Directory to save reduced batches. If None, creates 'gaussian_batches_reduced' directory.
 
     Returns:
         dict: Results summary with projection info and processed batch paths
@@ -235,7 +235,7 @@ def process_all_batches(
 
         # Create output directory
         if output_dir is None:
-            output_dir = os.path.join(current_dir, "batches_reduced")
+            output_dir = os.path.join(current_dir, "gaussian_batches_reduced")
         os.makedirs(output_dir, exist_ok=True)
 
         print(f"\n=== STEP 2: Applying projection to all batches ===")
